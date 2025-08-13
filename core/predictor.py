@@ -5,7 +5,7 @@ import joblib
 import requests
 import holidays
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import MODEL_PATH, COLUMNS_PATH, API_KEY_PATH, HOLIDAY_COUNTRY, HOLIDAY_PROVINCE
 
 # --- Load Artifacts on Startup ---
@@ -35,8 +35,30 @@ def get_hourly_weather_forecast(location, target_date, target_hour):
     except Exception as e:
         return {"error": f"API or data parsing error: {e}"}
 
+# --- Rolling Average Prediction Function ---
+def rolling_average_prediction(base_df, target_date, target_hour, window_days=3):
+    """
+    Predicts average order count per food item for the given hour over the recent window_days.
+    """
+    df = base_df.copy()
+    # Ensure order_date is datetime.date
+    df['order_date'] = pd.to_datetime(df['date']).dt.date
+    start_date = target_date - timedelta(days=window_days)
+    recent_df = df[df['order_date'] >= start_date]
+
+    # Count orders per food item per hour
+    mask = recent_df['hour'] == target_hour
+    grouped = (
+        recent_df[mask]
+        .groupby(['food_item_name'])
+        .size()
+        .reset_index(name='rolling_avg_orders')
+        .sort_values('rolling_avg_orders', ascending=False)
+    )
+    return grouped
+
 # --- Main Prediction Function ---
-def generate_predictions(base_df, location, target_date_str, target_hour, is_special_event):
+def generate_predictions(base_df, location, target_date_str, target_hour, is_special_event, rolling_window_days=3):
     """Generates order predictions. This function is now pure and depends only on its inputs."""
     try:
         target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
@@ -74,9 +96,14 @@ def generate_predictions(base_df, location, target_date_str, target_hour, is_spe
     overall = future_df.groupby('food_item_name')['probability'].mean().reset_index().sort_values('probability', ascending=False)
     detailed = future_df.pivot(index='food_item_name', columns='order_type', values='probability').reset_index().fillna(0)
     detailed = detailed.sort_values(by=['Dine In', 'Take Away'], ascending=False)
-    
+
+    # --- Rolling average prediction ---
+    rolling_avg = rolling_average_prediction(base_df, target_date, target_hour, window_days=rolling_window_days)
+
     return {
         "weather": weather_data,
         "overall_prediction": overall,
-        "detailed_prediction": detailed
+        "detailed_prediction": detailed,
+        "rolling_avg_prediction": rolling_avg,
+        "rolling_window_days": rolling_window_days,
     }
