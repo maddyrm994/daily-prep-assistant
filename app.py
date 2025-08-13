@@ -44,6 +44,12 @@ if base_df is not None and location:
     selected_hour = st.sidebar.selectbox("Select Hour (24h)", hours)
     
     is_special_event = st.sidebar.checkbox("Is there a special local event?")
+
+    st.sidebar.markdown("---")
+    rolling_window_days = st.sidebar.number_input(
+        "Rolling Window Size (days)", min_value=1, max_value=30, value=3,
+        help="How many recent days to use for the rolling average calculation"
+    )
     
     predict_button = st.sidebar.button("Generate Forecast", type="primary", use_container_width=True)
 
@@ -54,7 +60,7 @@ if base_df is not None and location:
             date_str = selected_date.strftime('%Y-%m-%d')
             
             # Call the core prediction function
-            results = generate_predictions(base_df, location, date_str, selected_hour, is_special_event)
+            results = generate_predictions(base_df, location, date_str, selected_hour, is_special_event, rolling_window_days)
             
             if "error" in results:
                 st.error(results["error"])
@@ -69,8 +75,7 @@ if base_df is not None and location:
                     col3.metric("Wind Speed", f"{results['weather']['wind_kph']} kph")
                     col4.metric("Cloud Cover", f"{results['weather']['cloud']}%")
 
-                # Display Predictions
-                tab1, tab2 = st.tabs(["📈 Overall Prediction", "📊 Dine-In vs. Take-Away"])
+                tab1, tab2, tab3 = st.tabs(["📈 ML Prediction", "📊 Dine-In vs. Take-Away", "🆕 Rolling Avg. (Recent Trend)"])
                 
                 with tab1:
                     st.dataframe(results['overall_prediction'], use_container_width=True,
@@ -82,5 +87,13 @@ if base_df is not None and location:
                                      "Dine In": st.column_config.ProgressColumn("Dine In", format="%.2f"),
                                      "Take Away": st.column_config.ProgressColumn("Take Away", format="%.2f")
                                  })
+                with tab3:
+                    st.markdown(
+                        f"**Rolling Window:** Last {results['rolling_window_days']} days  \n"
+                        "This table shows the average number of orders for each menu item at the selected hour, "
+                        "calculated using only the most recent days."
+                    )
+                    st.dataframe(results['rolling_avg_prediction'], use_container_width=True,
+                        column_config={"rolling_avg_orders": st.column_config.ProgressColumn("Avg. Orders", format="%.0f")})
 else:
     st.sidebar.warning("Please configure the data source to proceed.")
